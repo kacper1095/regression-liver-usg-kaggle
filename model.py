@@ -77,7 +77,6 @@ class PretrainedModel(nn.Module):
             b, ncrops, c, h, w = x.size()
             features = self.extractor(x.view(-1, c, h, w))
             out = F.adaptive_avg_pool2d(features, (1, 1)).view(features.size(0), -1)
-            out = F.dropout(out, p=0.1, training=self.training)
 
             class_out = self.classifier(out) \
                 .view(b, ncrops, -1) \
@@ -89,7 +88,6 @@ class PretrainedModel(nn.Module):
         else:
             features = self.extractor(x)
             out = F.adaptive_avg_pool2d(features, (1, 1)).view(features.size(0), -1)
-            out = F.dropout(out, p=0.1, training=self.training)
 
             class_out = self.classifier(out)
             regression_out = self.regressor(out)
