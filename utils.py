@@ -30,8 +30,8 @@ def get_full_number_from_all_predictions(
 
 
 def restore_real_prediction_values(predictions: np.ndarray) -> np.ndarray:
-    return (predictions.squeeze() * common.MAX_VALUE_AFTER_SHIFT) \
-           + common.MIN_MEAN_DECIMAL_VALUE
+    return np.round((predictions.squeeze() * common.MAX_VALUE_AFTER_SHIFT) \
+                    + common.MIN_MEAN_DECIMAL_VALUE, decimals=1)
 
 
 def get_true_values_from_paths(paths: Iterable[Path]) -> np.ndarray:
