@@ -1,25 +1,25 @@
 import argparse
+import multiprocessing as mp
 from itertools import chain
 from pathlib import Path
 
 import numpy as np
-import multiprocessing as mp
 import pandas as pd
 import torch
-import torch.optim as optim
 import torch.nn as nn
 import torch.optim as optim
-import optimisers
 from skorch import NeuralNet
 from skorch.callbacks import BatchScoring, Checkpoint, EpochScoring, LRScheduler, \
     ProgressBar
 from skorch.helper import predefined_split
 
-from common import acc, fscore, fscore_as_metric, get_test_transformers, get_timestamp, \
-    get_train_test_split_from_paths, \
-    get_train_transformers
+import common
 from dataset import UsgDataset
+from losses import *
+from metrics import *
 from model import PretrainedModel
+from transformers import *
+from utils import *
 
 # Needed it because of in `DataLoader` for validation set
 # RuntimeError: received 0 items of ancdata
@@ -41,7 +41,7 @@ def train(data_folder: str, out_model: str):
     data_paths = list(sorted(data_paths, key=lambda x: int(x.name)))
 
     classes = [int(path.parent.name) for path in data_paths]
-    train_paths, valid_paths = get_train_test_split_from_paths(data_paths, classes)
+    train_paths, valid_paths = common.get_train_test_split_from_paths(data_paths, classes)
 
     train_dataset = UsgDataset(train_paths, True,
                                transforms=get_train_transformers(),
@@ -51,16 +51,15 @@ def train(data_folder: str, out_model: str):
                                has_crops=True)
     net = NeuralNet(
         PretrainedModel,
-        criterion=nn.CrossEntropyLoss,
+        criterion=MixedLoss,
         batch_size=batch_size,
         max_epochs=100,
         optimizer=optim.Adam,
         lr=0.0001,
-        # optimizer__weight_decay=5e-6,
         iterator_train__shuffle=True,
-        iterator_train__num_workers=4,
+        iterator_train__num_workers=mp.cpu_count(),
         iterator_valid__shuffle=False,
-        iterator_valid__num_workers=4,
+        iterator_valid__num_workers=mp.cpu_count(),
         train_split=predefined_split(valid_dataset),
         device="cuda",
         callbacks=[
@@ -69,12 +68,34 @@ def train(data_folder: str, out_model: str):
                 f_optimizer=(out_model / "optim.pt").as_posix(),
                 f_history=(out_model / "history.pt").as_posix()
             ),
-            EpochScoring(acc, name="val_acc", lower_is_better=False, on_train=False),
-            EpochScoring(fscore, name="val_fscore", lower_is_better=False, on_train=False),
-            BatchScoring(acc, name="train_acc", lower_is_better=False, on_train=True),
-            BatchScoring(fscore, name="train_fscore", lower_is_better=False,
-                         on_train=True),
-            ProgressBar(postfix_keys=["train_loss", "train_fscore"]),
+
+            EpochScoring(fscore,
+                         name="val_fscore",
+                         lower_is_better=False,
+                         on_train=False,
+                         target_extractor=lambda x: x[0]),
+            EpochScoring(rmse,
+                         name="val_rmse",
+                         lower_is_better=True,
+                         on_train=False,
+                         target_extractor=lambda x: x[1]),
+
+            BatchScoring(fscore,
+                         name="train_fscore",
+                         lower_is_better=False,
+                         on_train=True,
+                         target_extractor=lambda x: x[0]),
+            BatchScoring(rmse,
+                         name="train_rmse",
+                         lower_is_better=True,
+                         on_train=True,
+                         target_extractor=lambda x: x[1]),
+
+            ProgressBar(postfix_keys=[
+                "train_loss",
+                "train_fscore",
+                "train_rmse"
+            ]),
             LRScheduler(
                 policy="ReduceLROnPlateau",
                 monitor="valid_loss",
@@ -92,7 +113,7 @@ def train(data_folder: str, out_model: str):
         PretrainedModel,
         criterion=nn.CrossEntropyLoss,
         iterator_valid__shuffle=False,
-        iterator_valid__num_workers=4,
+        iterator_valid__num_workers=mp.cpu_count(),
         iterator_valid__batch_size=batch_size,
         device="cuda",
     )
@@ -108,22 +129,30 @@ def train(data_folder: str, out_model: str):
         has_crops=True
     )
 
-    valid_predictions = net.predict(valid_dataset)
-    valid_trues = np.asarray([int(path.parent.name) for path in valid_paths])
-    val_acc = fscore_as_metric(valid_predictions, valid_trues)
+    valid_predictions = net.forward(valid_dataset)
+    valid_predictions = restore_real_prediction_values(
+        valid_predictions[common.REGRESSION_INDEX].detach().cpu().numpy()
+    )
 
-    predictions = net.predict(test_dataset)
+    valid_trues = get_true_values_from_paths(valid_paths)
+    val_rmse = rmse_as_metric(valid_predictions, valid_trues)
+
+    predictions = net.forward(test_dataset)
+    predictions = restore_real_prediction_values(
+        predictions[common.REGRESSION_INDEX].detach().cpu().numpy()
+    )
 
     ids = [path.name for path in test_data_paths]
-    classes = np.argmax(predictions, axis=1)
-    frame = pd.DataFrame(data={"id": ids, "label": classes})
-    frame["id"] = frame["id"].astype(np.int)
-    frame = frame.sort_values(by=["id"])
+    frame = pd.DataFrame(data={"Id": ids, "Predicted": predictions})
+    frame["Id"] = frame["Id"].astype(np.int)
+    frame = frame.sort_values(by=["Id"])
 
-    print("Generating submission ... {:.4f}".format(val_acc))
+    print("Generating submission ... {:.4f}".format(val_rmse))
 
-    frame.to_csv(f"submissions/{get_timestamp()}_{'%.4f' % val_acc}_submission.csv",
-                 index=False)
+    frame.to_csv(
+        f"submissions/{common.get_timestamp()}_{'%.4f' % val_rmse}_submission.csv",
+        index=False
+    )
 
 
 def main():

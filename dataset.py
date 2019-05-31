@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -9,6 +10,8 @@ from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage.interpolation import map_coordinates
 from skimage import exposure
 from torch.utils.data import Dataset
+
+import common
 
 UP_CUT, BOTTOM_CUT = 10, 10
 LEFT_CUT, RIGHT_CUT = 250, 250
@@ -114,9 +117,17 @@ class UsgDataset(Dataset):
             img = np.concatenate(stack, axis=0)
         if self.is_train_or_valid:
             a_class = int(a_path.parent.name)
-            return img, a_class
+            regression_data = json.loads(
+                (a_path / common.REGRESSION_DATA_FILE_NAME).read_text()
+            )
+            regression_value = (
+                regression_data["mean"] - common.MIN_MEAN_DECIMAL_VALUE
+            ) / common.MAX_VALUE_AFTER_SHIFT
+            regression_value = np.asarray(regression_value).astype(np.float32)
 
-        return img, -1
+            return img, (a_class, regression_value)
+
+        return img, (-1, 0.0)
 
     def __len__(self):
         return len(self.paths)
