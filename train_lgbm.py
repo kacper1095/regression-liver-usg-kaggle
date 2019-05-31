@@ -63,15 +63,13 @@ def train(data_folder: str, out_model: str):
         "metric": "rmse",
         "nthread": mp.cpu_count(),
         "num_leaves": 16,
-        "learning_rate": 0.005,
+        "learning_rate": 0.05,
         "random_state": 0xCAFFE,
         "reg_alpha": 1.2,
         "reg_lambda": 1.4,
-        "max_bin": 512,
-        "n_estimators": 40,
+        "n_estimators": 100,
         "min_split_gain": 0.5,
-        "min_child_samples": 5,
-        "subsample": 0.75,
+        "subsample": 0.85,
         "num_iterations": 1500
     }
 
