@@ -10,13 +10,14 @@ import torch
 import torch.nn.functional as F
 from skorch import NeuralNet
 from skorch.callbacks import ProgressBar
+from torchvision.transforms import Compose
 
 from common import get_train_test_split_from_paths
 from dataset import UsgDataset
 from losses import MixedLoss
 from model import PretrainedModel
-from train import batch_size
-from transformers import get_test_transformers
+from train import batch_size, balance_paths_by_decimal_value
+from transformers import get_test_transformers, get_train_transformers
 from utils import restore_real_prediction_values
 
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -56,8 +57,14 @@ def generate_embeddings(data_folder: str, weights_path: str, output_path: str):
     net.load_params(f_params=weights_path.as_posix())
 
     print("Saving train embeddings ...")
-    save_data_to_path(get_prediction_with_paths(train_paths, net),
-                      output_path / "train.pkl")
+    save_data_to_path(
+        get_prediction_with_paths(
+            list(balance_paths_by_decimal_value(train_paths)),
+            net,
+            get_train_transformers()
+        ),
+        output_path / "train.pkl"
+    )
 
     print("Saving valid embeddings ...")
     save_data_to_path(get_prediction_with_paths(valid_paths, net),
@@ -71,10 +78,11 @@ def generate_embeddings(data_folder: str, weights_path: str, output_path: str):
 def get_prediction_with_paths(
         paths: Union[List[Path], Tuple[Path]],
         net: NeuralNet,
+        transformers: Compose = get_test_transformers()
 ) -> Tuple[np.ndarray, np.ndarray]:
     dataset = UsgDataset(
         paths, is_train_or_valid=False,
-        transforms=get_test_transformers(),
+        transforms=transformers,
         has_crops=True
     )
 
