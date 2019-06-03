@@ -6,10 +6,12 @@ from sklearn.model_selection import train_test_split
 
 MIN_MEAN_DECIMAL_VALUE = 3
 MAX_VALUE_AFTER_SHIFT = 61
+BEST_SPLITTING_THRESHOLD = 8
 REGRESSION_DATA_FILE_NAME = "regression_ground_truth.json"
 
 CLASSIFICATION_INDEX = 0
 REGRESSION_INDEX = 1
+SPLIT_CLASSIFICATION_INDEX = 2
 
 
 def get_timestamp() -> str:

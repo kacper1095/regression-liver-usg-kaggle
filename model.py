@@ -71,6 +71,15 @@ class PretrainedModel(nn.Module):
             NAC(512, 1)
         )
 
+        self.split_classifier = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(pretrained_model.classifier.in_features, 512),
+            nn.ELU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(0.5),
+            nn.Linear(512, 2)
+        )
+
     def forward(self, x):
         is_test = len(x.size()) == 5
         if is_test:
@@ -84,6 +93,9 @@ class PretrainedModel(nn.Module):
             regression_out = self.regressor(out) \
                 .view(b, ncrops, -1) \
                 .mean(dim=1)
+            split_class_out = self.split_classifier(out) \
+                .view(b, ncrops, -1) \
+                .mean(dim=1)
 
         else:
             features = self.extractor(x)
@@ -91,5 +103,6 @@ class PretrainedModel(nn.Module):
 
             class_out = self.classifier(out)
             regression_out = self.regressor(out)
+            split_class_out = self.split_classifier(out)
 
-        return class_out, regression_out
+        return class_out, regression_out, split_class_out

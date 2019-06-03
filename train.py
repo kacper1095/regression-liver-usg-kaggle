@@ -1,7 +1,11 @@
 import argparse
+import json
 import multiprocessing as mp
+from collections import defaultdict
 from itertools import chain
+from pprint import pprint
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -26,6 +30,36 @@ from utils import *
 # https://github.com/pytorch/pytorch/issues/973#issuecomment-426559250
 torch.multiprocessing.set_sharing_strategy('file_system')
 batch_size = 16
+rng = np.random.RandomState(0)
+
+
+def balance_paths_by_decimal_value(
+        paths: Iterable[Path],
+        limit: float = 0.6
+) -> Iterable[Path]:
+    classes_and_paths = defaultdict(list)
+    for path in paths:
+        datum = json.loads((path / common.REGRESSION_DATA_FILE_NAME).read_text())
+        a_cls = int(datum["mean"])
+        classes_and_paths[a_cls].append(path)
+
+    max_count = max(len(values) for _, values in classes_and_paths.items())
+    new_max_count = int(limit * max_count)
+
+    total_new_paths = []
+    new_classes_counts = {}
+    for a_cls, cls_paths in classes_and_paths.items():
+        if len(cls_paths) > new_max_count:
+            new_paths = list(rng.choice(cls_paths, new_max_count, replace=False))
+        else:
+            new_paths = cls_paths + list(rng.choice(
+                cls_paths, new_max_count - len(cls_paths), replace=True
+            ))
+        total_new_paths.extend(new_paths)
+        new_classes_counts[a_cls] = len(new_paths)
+    print("New classes counts:")
+    pprint(new_classes_counts)
+    return total_new_paths
 
 
 def train(data_folder: str, out_model: str):
@@ -42,6 +76,7 @@ def train(data_folder: str, out_model: str):
 
     classes = [int(path.parent.name) for path in data_paths]
     train_paths, valid_paths = common.get_train_test_split_from_paths(data_paths, classes)
+    train_paths = list(balance_paths_by_decimal_value(train_paths))
 
     train_dataset = UsgDataset(train_paths, True,
                                transforms=get_train_transformers(),
@@ -69,31 +104,42 @@ def train(data_folder: str, out_model: str):
                 f_history=(out_model / "history.pt").as_posix()
             ),
 
-            EpochScoring(fscore,
-                         name="val_fscore",
+            EpochScoring(fscore_for_classification,
+                         name="val_fscore_cls",
                          lower_is_better=False,
                          on_train=False,
-                         target_extractor=lambda x: x[0]),
+                         target_extractor=lambda x: x[common.CLASSIFICATION_INDEX]),
+            EpochScoring(fscore_for_split,
+                         name="val_fscore_split",
+                         lower_is_better=False,
+                         on_train=False,
+                         target_extractor=lambda x: x[common.SPLIT_CLASSIFICATION_INDEX]),
             EpochScoring(rmse,
                          name="val_rmse",
                          lower_is_better=True,
                          on_train=False,
-                         target_extractor=lambda x: x[1]),
+                         target_extractor=lambda x: x[common.REGRESSION_INDEX]),
 
-            BatchScoring(fscore,
-                         name="train_fscore",
+            BatchScoring(fscore_for_classification,
+                         name="train_fscore_cls",
                          lower_is_better=False,
                          on_train=True,
-                         target_extractor=lambda x: x[0]),
+                         target_extractor=lambda x: x[common.CLASSIFICATION_INDEX]),
+            BatchScoring(fscore_for_classification,
+                         name="train_fscore_split",
+                         lower_is_better=False,
+                         on_train=True,
+                         target_extractor=lambda x: x[common.SPLIT_CLASSIFICATION_INDEX]),
             BatchScoring(rmse,
                          name="train_rmse",
                          lower_is_better=True,
                          on_train=True,
-                         target_extractor=lambda x: x[1]),
+                         target_extractor=lambda x: x[common.REGRESSION_INDEX]),
 
             ProgressBar(postfix_keys=[
                 "train_loss",
-                "train_fscore",
+                "train_fscore_cls",
+                "train_fscore_split",
                 "train_rmse"
             ]),
             LRScheduler(

@@ -11,8 +11,10 @@ from utils import restore_real_prediction_values
 
 __all__ = [
     "acc", "acc_as_metric",
-    "fscore", "fscore_as_metric",
-    "rmse", "rmse_as_metric"
+    "fscore_as_metric",
+    "rmse", "rmse_as_metric",
+    "fscore_for_classification",
+    "fscore_for_split"
 ]
 
 
@@ -43,6 +45,7 @@ def acc(net: NeuralNet,
 
 
 def fscore(net: NeuralNet,
+           prediction_index: int,
            ds: Optional[Dataset] = None,
            y: Optional[torch.Tensor] = None,
            y_pred: Optional[torch.Tensor] = None) -> float:
@@ -51,8 +54,26 @@ def fscore(net: NeuralNet,
     if not isinstance(y, np.ndarray):
         y = y.detach().cpu().numpy()
     return fscore_as_metric(
-        y_pred[common.CLASSIFICATION_INDEX].detach().cpu().numpy(),
+        y_pred[prediction_index].detach().cpu().numpy(),
         y
+    )
+
+
+def fscore_for_classification(net: NeuralNet,
+                              ds: Optional[Dataset] = None,
+                              y: Optional[torch.Tensor] = None,
+                              y_pred: Optional[torch.Tensor] = None) -> float:
+    return fscore(
+        net, common.CLASSIFICATION_INDEX, ds, y, y_pred
+    )
+
+
+def fscore_for_split(net: NeuralNet,
+                     ds: Optional[Dataset] = None,
+                     y: Optional[torch.Tensor] = None,
+                     y_pred: Optional[torch.Tensor] = None) -> float:
+    return fscore(
+        net, common.SPLIT_CLASSIFICATION_INDEX, ds, y, y_pred
     )
 
 

@@ -120,14 +120,17 @@ class UsgDataset(Dataset):
             regression_data = json.loads(
                 (a_path / common.REGRESSION_DATA_FILE_NAME).read_text()
             )
+
+            split_class = int(regression_data["mean"] > common.BEST_SPLITTING_THRESHOLD)
+
             regression_value = (
                 regression_data["mean"] - common.MIN_MEAN_DECIMAL_VALUE
             ) / common.MAX_VALUE_AFTER_SHIFT
             regression_value = np.asarray(regression_value).astype(np.float32)
 
-            return img, (a_class, regression_value)
+            return img, (a_class, regression_value, split_class)
 
-        return img, (-1, 0.0)
+        return img, (-1, 0, 0)
 
     def __len__(self):
         return len(self.paths)
