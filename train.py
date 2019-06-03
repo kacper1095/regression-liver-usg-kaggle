@@ -101,7 +101,8 @@ def train(data_folder: str, out_model: str):
             Checkpoint(
                 f_params=(out_model / "params.pt").as_posix(),
                 f_optimizer=(out_model / "optim.pt").as_posix(),
-                f_history=(out_model / "history.pt").as_posix()
+                f_history=(out_model / "history.pt").as_posix(),
+                monitor="valid_rmse_best"
             ),
 
             EpochScoring(fscore_for_classification,
@@ -144,7 +145,7 @@ def train(data_folder: str, out_model: str):
             ]),
             LRScheduler(
                 policy="ReduceLROnPlateau",
-                monitor="valid_loss",
+                monitor="valid_rmse",
                 factor=0.91,
                 patience=3,
             ),
