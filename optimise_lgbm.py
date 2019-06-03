@@ -2,12 +2,14 @@ import argparse
 import json
 import multiprocessing as mp
 import pickle as pkl
+import time
 from pathlib import Path
 from typing import Tuple
+from pprint import pprint
 
+import hyperopt as hp
 import lightgbm as lgb
 import numpy as np
-import pandas as pd
 from sklearn.model_selection import StratifiedKFold
 
 import common
@@ -37,17 +39,14 @@ def get_y_and_classes_from_ids(
     return gt, classes
 
 
-def train(data_folder: str, out_model: str):
-    out_model = Path(out_model)
-    out_model.mkdir()
-
+def objective(params: dict, data_folder: str):
+    print(json.dumps(params, indent=4))
     data_folder = Path(data_folder)
 
     train_paths, x_train = pkl.loads(
         (data_folder / "embeddings" / "train.pkl").read_bytes())
     valid_paths, x_valid = pkl.loads(
         (data_folder / "embeddings" / "valid.pkl").read_bytes())
-    test_paths, x_test = pkl.loads((data_folder / "embeddings" / "test.pkl").read_bytes())
 
     y_train, cls_y_train = get_y_and_classes_from_ids(data_folder, train_paths)
     y_valid, cls_y_valid = get_y_and_classes_from_ids(data_folder, valid_paths)
@@ -62,22 +61,21 @@ def train(data_folder: str, out_model: str):
         "objective": "rmse",
         "metric": "rmse",
         "nthread": mp.cpu_count(),
-        "num_leaves": 16,
-        "learning_rate": 0.05,
+        "num_leaves": int(params["num_leaves"]),
+        "learning_rate": params["learning_rate"],
         "random_state": 0xCAFFE,
-        "reg_alpha": 1.2,
-        "reg_lambda": 1.4,
-        "n_estimators": 100,
-        "min_split_gain": 0.5,
-        "subsample": 0.85,
-        "num_iterations": 1500
+        "reg_alpha": params["reg_alpha"],
+        "reg_lambda": params["reg_lambda"],
+        "n_estimators": int(params["n_estimators"]),
+        "min_split_gain": params["min_split_gain"],
+        "subsample": params["subsample"],
+        "verbose": 1
     }
 
     num_round = 100
     kfolds = 10
 
     folder = StratifiedKFold(n_splits=10, random_state=0xCAFFE)
-    test_predictions = np.zeros((kfolds, len(test_paths)))
     valid_predictions = np.zeros_like(y_train)
 
     for i, (train_indices, valid_indices) in enumerate(folder.split(
@@ -98,33 +96,50 @@ def train(data_folder: str, out_model: str):
             early_stopping_rounds=150
         )
 
-        bst.save_model(
-            (out_model / f"model_{i}.txt").as_posix(),
-            num_iteration=bst.best_iteration
-        )
-
         valid_predictions[valid_indices] = bst.predict(
             cur_x_valid, num_iteration=bst.best_iteration
         )
-        test_predictions[i] = bst.predict(x_test, num_iteration=bst.best_iteration)
 
-    print("Generating submission ...")
     val_rmse = rmse_as_metric(valid_predictions, y_train)
-    test_ids = [int(Path(path).name) for path in test_paths]
+    return {
+        "loss": val_rmse,
+        "status": hp.STATUS_OK,
+        "eval_time": time.time()
+    }
 
-    frame = pd.DataFrame(data={
-        "Id": test_ids,
-        "Predicted": test_predictions.mean(axis=0).round(1)
-    })
-    frame["Id"] = frame["Id"].astype(np.int)
-    frame = frame.sort_values(by=["Id"])
 
-    print("Generating submission ... {:.4f}".format(val_rmse))
+def optimise(data_folder: str, out_folder: str):
+    out_folder = Path(out_folder)
+    out_folder.mkdir()
 
-    frame.to_csv(
-        f"submissions/{common.get_timestamp()}_{'%.4f' % val_rmse}_submission.csv",
-        index=False
+    space = {
+        "n_estimators": hp.hp.quniform("n_estimators", 500, 2000, 1),
+        "num_leaves": hp.hp.quniform("num_leaves", 16, 128, 1),
+        "learning_rate": hp.hp.uniform("learning_rate", 0.001, 0.08),
+        "reg_alpha": hp.hp.uniform("reg_alpha", 0.5, 4),
+        "reg_lambda": hp.hp.uniform("reg_lambda", 0.5, 4),
+        "min_split_gain": hp.hp.uniform("min_split_gain", 0.6, 0.9),
+        "subsample": hp.hp.uniform("subsample", 0.6, 0.95)
+    }
+    trials = hp.Trials()
+
+    obj_lambd = lambda params: objective(params, data_folder)
+    best_params = hp.fmin(
+        obj_lambd,
+        space=space,
+        trials=trials,
+        max_evals=200,
+        algo=hp.tpe.suggest
     )
+
+    (out_folder / "trials.pkl").write_bytes(
+        pkl.dumps(trials, protocol=pkl.HIGHEST_PROTOCOL)
+    )
+    (out_folder / "best_params.pkl").write_text(
+        json.dumps(best_params, indent=4)
+    )
+
+    print(best_params)
 
 
 def main():
@@ -134,11 +149,11 @@ def main():
         help="Folder with 'train' and 'test' folders prepared for the competition."
     )
     parser.add_argument(
-        "out_model",
-        help="Output folder where weights and tensorboards will be saved."
+        "out_folder",
+        help="Folder for optimisation_results."
     )
     args = parser.parse_args()
-    train(args.data_folder, args.out_model)
+    optimise(args.data_folder, args.out_folder)
 
 
 if __name__ == '__main__':
