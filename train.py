@@ -3,14 +3,12 @@ import json
 import multiprocessing as mp
 from collections import defaultdict
 from itertools import chain
-from pprint import pprint
 from pathlib import Path
 from typing import Iterable
 
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from skorch import NeuralNet
 from skorch.callbacks import BatchScoring, Checkpoint, EpochScoring, LRScheduler, \
@@ -57,8 +55,6 @@ def balance_paths_by_decimal_value(
             ))
         total_new_paths.extend(new_paths)
         new_classes_counts[a_cls] = len(new_paths)
-    print("New classes counts:")
-    pprint(new_classes_counts)
     return total_new_paths
 
 
@@ -98,13 +94,6 @@ def train(data_folder: str, out_model: str):
         train_split=predefined_split(valid_dataset),
         device="cuda",
         callbacks=[
-            Checkpoint(
-                f_params=(out_model / "params.pt").as_posix(),
-                f_optimizer=(out_model / "optim.pt").as_posix(),
-                f_history=(out_model / "history.pt").as_posix(),
-                monitor="valid_rmse_best"
-            ),
-
             EpochScoring(fscore_for_classification,
                          name="val_fscore_cls",
                          lower_is_better=False,
@@ -136,7 +125,12 @@ def train(data_folder: str, out_model: str):
                          lower_is_better=True,
                          on_train=True,
                          target_extractor=lambda x: x[common.REGRESSION_INDEX]),
-
+            Checkpoint(
+                f_params=(out_model / "params.pt").as_posix(),
+                f_optimizer=(out_model / "optim.pt").as_posix(),
+                f_history=(out_model / "history.pt").as_posix(),
+                monitor="val_rmse_best"
+            ),
             ProgressBar(postfix_keys=[
                 "train_loss",
                 "train_fscore_cls",
@@ -145,7 +139,7 @@ def train(data_folder: str, out_model: str):
             ]),
             LRScheduler(
                 policy="ReduceLROnPlateau",
-                monitor="valid_rmse",
+                monitor="val_rmse",
                 factor=0.91,
                 patience=3,
             ),
@@ -158,7 +152,9 @@ def train(data_folder: str, out_model: str):
     print("Generating submission ...")
     net = NeuralNet(
         PretrainedModel,
-        criterion=nn.CrossEntropyLoss,
+        criterion=MixedLoss,
+        module__extract_intermediate_values=False,
+        module__n_dropout_runs=100,
         iterator_valid__shuffle=False,
         iterator_valid__num_workers=mp.cpu_count(),
         iterator_valid__batch_size=batch_size,
@@ -179,7 +175,7 @@ def train(data_folder: str, out_model: str):
     valid_predictions = net.forward(valid_dataset)
     valid_predictions = restore_real_prediction_values(
         valid_predictions[common.REGRESSION_INDEX].detach().cpu().numpy()
-    )
+    ).mean(axis=1)
 
     valid_trues = get_true_values_from_paths(valid_paths)
     val_rmse = rmse_as_metric(valid_predictions, valid_trues)
@@ -187,7 +183,7 @@ def train(data_folder: str, out_model: str):
     predictions = net.forward(test_dataset)
     predictions = restore_real_prediction_values(
         predictions[common.REGRESSION_INDEX].detach().cpu().numpy()
-    )
+    ).mean(axis=1)
 
     ids = [path.name for path in test_data_paths]
     frame = pd.DataFrame(data={"Id": ids, "Predicted": predictions})

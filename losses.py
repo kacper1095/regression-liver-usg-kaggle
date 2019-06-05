@@ -7,9 +7,9 @@ __all__ = [
 
 class MixedLoss(nn.Module):
     def __init__(self,
-                 class_loss_weight: float = 0.5,
+                 class_loss_weight: float = 0.1,
                  regression_loss_weight: float = 1.0,
-                 split_classification_loss_weight: float = 0.5):
+                 split_classification_loss_weight: float = 0.07):
         super().__init__()
 
         self.classification_loss_weight = class_loss_weight
