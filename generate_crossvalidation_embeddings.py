@@ -16,8 +16,8 @@ from common import get_train_test_split_from_paths
 from dataset import UsgDataset
 from losses import MixedLoss
 from model import PretrainedModel
-from train import batch_size
-from transformers import get_test_transformers
+from train import balance_paths_by_decimal_value, batch_size
+from transformers import get_test_transformers, get_test_transformers_with_augmentations
 from utils import restore_real_prediction_values
 
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -57,8 +57,14 @@ def generate_embeddings(data_folder: str, weights_path: str, output_path: str):
     net.load_params(f_params=weights_path.as_posix())
 
     print("Saving train embeddings ...")
-    save_data_to_path(get_prediction_with_paths(train_paths, net),
-                      output_path / "train.pkl")
+    save_data_to_path(
+        get_prediction_with_paths(
+            list(balance_paths_by_decimal_value(train_paths)),
+            net,
+            get_test_transformers_with_augmentations()
+        ),
+        output_path / "train.pkl"
+    )
 
     print("Saving valid embeddings ...")
     save_data_to_path(get_prediction_with_paths(valid_paths, net),
