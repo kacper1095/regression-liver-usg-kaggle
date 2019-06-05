@@ -8,7 +8,8 @@ from dataset import Denoising, ImgaugWrapper
 
 __all__ = [
     "get_train_transformers",
-    "get_test_transformers"
+    "get_test_transformers",
+    "get_test_transformers_with_augmentations"
 ]
 
 
@@ -36,6 +37,36 @@ def get_train_transformers():
         ToTensor()
     ])
     return transforms
+
+
+def get_test_transformers_with_augmentations():
+    augmenters = iaa.Sequential([
+        iaa.Fliplr(p=0.2),
+        iaa.Affine(
+            translate_px=(-10, 10),
+            rotate=(-10, 10),
+            mode=["reflect", "symmetric"]
+        ),
+        iaa.ElasticTransformation(
+            alpha=(10, 30),
+            sigma=6,
+            mode="wrap"
+        )
+    ], random_order=True)
+
+    for_the_crop = Compose([
+        Resize(128, interpolation=Image.LANCZOS),
+        ToTensor()
+    ])
+    return Compose([
+        Denoising(denoising_scale=7),
+        ImgaugWrapper(augmenters),
+        ToPILImage(mode="L"),
+        FiveCrop(128),
+        Lambda(lambda crops: torch.stack(tuple([
+            for_the_crop(crop) for crop in crops
+        ])))
+    ])
 
 
 def get_test_transformers():

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, List, Tuple, Union
 
 import numpy as np
+import common
 import torch
 import torch.nn.functional as F
 from skorch import NeuralNet
@@ -46,7 +47,7 @@ def generate_embeddings(data_folder: str, weights_path: str, output_path: str):
         PretrainedModel,
         criterion=MixedLoss,
         module__extract_intermediate_values=True,
-        module__n_dropout_runs=100,
+        module__n_dropout_runs=common.N_DROPOUT_INFERENCES,
         iterator_valid__shuffle=False,
         iterator_valid__num_workers=mp.cpu_count(),
         iterator_valid__batch_size=batch_size,

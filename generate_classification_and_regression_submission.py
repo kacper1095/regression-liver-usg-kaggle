@@ -49,7 +49,7 @@ def generate_submission(data_folder: str, weights_path: str):
         PretrainedModel,
         criterion=MixedLoss,
         module__extract_intermediate_values=False,
-        module__n_dropout_runs=100,
+        module__n_dropout_runs=common.N_DROPOUT_INFERENCES,
         iterator_valid__shuffle=False,
         iterator_valid__num_workers=mp.cpu_count(),
         iterator_valid__batch_size=batch_size,

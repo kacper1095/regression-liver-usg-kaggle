@@ -1,29 +1,28 @@
 import argparse
 import multiprocessing as mp
-import pickle as pkl
 from itertools import chain
 from pathlib import Path
-from typing import Any, List, Tuple, Union
 
 import numpy as np
 import torch
-import torch.nn.functional as F
+from sklearn.model_selection import StratifiedKFold
 from skorch import NeuralNet
 from skorch.callbacks import ProgressBar
-from torchvision.transforms import Compose
 
-from common import get_train_test_split_from_paths
-from dataset import UsgDataset
+import common
+from generate_embeddings import get_prediction_with_paths, save_data_to_path
 from losses import MixedLoss
 from model import PretrainedModel
 from train import balance_paths_by_decimal_value, batch_size
-from transformers import get_test_transformers, get_test_transformers_with_augmentations
-from utils import restore_real_prediction_values
+from transformers import get_test_transformers_with_augmentations
 
 torch.multiprocessing.set_sharing_strategy('file_system')
+USE_CUDA = torch.cuda.is_available()
 
 
-def generate_embeddings(data_folder: str, weights_path: str, output_path: str):
+def generate_crossvalidation_embeddings(
+        data_folder: str, weights_path: str, output_path: str
+):
     weights_path = Path(weights_path)
     output_path = Path(output_path)
 
@@ -33,20 +32,20 @@ def generate_embeddings(data_folder: str, weights_path: str, output_path: str):
             (Path(data_folder) / "train" / "1").glob("*")
         )
     )
-    data_paths = list(sorted(data_paths, key=lambda x: int(x.name)))
-
+    data_paths = np.asarray(list(sorted(data_paths, key=lambda x: int(x.name))))
     classes = [int(path.parent.name) for path in data_paths]
-
-    train_paths, valid_paths = get_train_test_split_from_paths(data_paths, classes)
     test_paths = list(
         (Path(data_folder) / "test").glob("*")
     )
+
+    folder = StratifiedKFold(n_splits=common.K_FOLDS,
+                             random_state=common.RANDOM_STATE_SEED)
 
     net = NeuralNet(
         PretrainedModel,
         criterion=MixedLoss,
         module__extract_intermediate_values=True,
-        module__n_dropout_runs=100,
+        module__n_dropout_runs=common.N_DROPOUT_INFERENCES,
         iterator_valid__shuffle=False,
         iterator_valid__num_workers=mp.cpu_count(),
         iterator_valid__batch_size=batch_size,
@@ -56,71 +55,30 @@ def generate_embeddings(data_folder: str, weights_path: str, output_path: str):
     net.initialize()
     net.load_params(f_params=weights_path.as_posix())
 
-    print("Saving train embeddings ...")
-    save_data_to_path(
-        get_prediction_with_paths(
-            list(balance_paths_by_decimal_value(train_paths)),
-            net,
-            get_test_transformers_with_augmentations()
-        ),
-        output_path / "train.pkl"
-    )
-
-    print("Saving valid embeddings ...")
-    save_data_to_path(get_prediction_with_paths(valid_paths, net),
-                      output_path / "valid.pkl")
-
     print("Saving test embeddings ...")
     save_data_to_path(get_prediction_with_paths(test_paths, net),
                       output_path / "test.pkl")
 
+    for i, (train_indices, valid_indices) in enumerate(folder.split(
+            data_paths, classes
+    )):
+        print("Fold: {} / {}".format(i + 1, common.K_FOLDS))
+        train_paths = data_paths[train_indices]
+        valid_paths = data_paths[valid_indices]
 
-def get_prediction_with_paths(
-        paths: Union[List[Path], Tuple[Path]],
-        net: NeuralNet,
-        transformers: Compose = get_test_transformers()
-) -> Tuple[np.ndarray, np.ndarray]:
-    dataset = UsgDataset(
-        paths, is_train_or_valid=False,
-        transforms=transformers,
-        has_crops=True
-    )
+        print("Saving train embeddings for fold {} ...".format(i + 1))
+        save_data_to_path(
+            get_prediction_with_paths(
+                list(balance_paths_by_decimal_value(train_paths)),
+                net,
+                get_test_transformers_with_augmentations()
+            ),
+            output_path / "train_{}.pkl".format(i)
+        )
 
-    predictions = list(net.forward(dataset))
-
-    classes_predictions = predictions[0]
-    regression_predictions = predictions[1]
-    split_predictions = predictions[2]
-
-    # because all embeddings are the same
-    pooled_features_predictions = predictions[3][:, 0]
-
-    classes_predictions = F.softmax(classes_predictions, dim=-1)
-    split_predictions = F.softmax(split_predictions, dim=-1)
-    regression_predictions = restore_real_prediction_values(regression_predictions)
-    regression_predictions = regression_predictions.unsqueeze(-1)
-
-    stats = []
-
-    for datum in [
-        classes_predictions,
-        split_predictions,
-        regression_predictions
-    ]:
-        for a_fun in [torch.mean, torch.var, torch.std]:
-            stats.append(a_fun(datum, dim=1))
-
-    final_predictions = torch.cat((torch.cat(tuple(stats), dim=-1),
-                                   pooled_features_predictions),
-                                  dim=-1).detach().cpu().numpy()
-
-    paths = np.asarray([path.as_posix() for path in paths])
-
-    return paths, final_predictions
-
-
-def save_data_to_path(data: Any, path: Path):
-    path.write_bytes(pkl.dumps(data, protocol=pkl.HIGHEST_PROTOCOL))
+        print("Saving valid embeddings for fold {} ...".format(i + 1))
+        save_data_to_path(get_prediction_with_paths(valid_paths, net),
+                          output_path / "valid_{}.pkl".format(i))
 
 
 def main():
@@ -139,7 +97,9 @@ def main():
     )
 
     args = parser.parse_args()
-    generate_embeddings(args.data_folder, args.model_folder, args.output_path)
+    generate_crossvalidation_embeddings(args.data_folder,
+                                        args.model_folder,
+                                        args.output_path)
 
 
 if __name__ == '__main__':

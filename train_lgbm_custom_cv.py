@@ -10,7 +10,6 @@ import pandas as pd
 import common
 from metrics import *
 from utils import get_y_and_classes_from_ids
-from sklearn.model_selection import StratifiedKFold
 
 
 def train(data_folder: str, out_model: str):
@@ -18,19 +17,9 @@ def train(data_folder: str, out_model: str):
     out_model.mkdir()
 
     data_folder = Path(data_folder)
-
-    train_paths, x_train = pkl.loads(
-        (data_folder / "embeddings" / "train.pkl").read_bytes())
-    valid_paths, x_valid = pkl.loads(
-        (data_folder / "embeddings" / "valid.pkl").read_bytes())
-    test_paths, x_test = pkl.loads((data_folder / "embeddings" / "test.pkl").read_bytes())
-
-    y_train, cls_y_train = get_y_and_classes_from_ids(data_folder, train_paths)
-    y_valid, cls_y_valid = get_y_and_classes_from_ids(data_folder, valid_paths)
-
-    x_train = np.concatenate([x_train, x_valid], axis=0)
-    y_train = np.concatenate([y_train, y_valid], axis=0)
-    cls_y_train = np.concatenate([cls_y_train, cls_y_valid], axis=0)
+    test_paths, x_test = pkl.loads((data_folder
+                                    / "cv_embeddings"
+                                    / "test.pkl").read_bytes())
 
     params = {
         "boosting_type": "gbdt",
@@ -41,28 +30,34 @@ def train(data_folder: str, out_model: str):
         "num_leaves": 26,
         "learning_rate": 0.05,
         "random_state": 0xCAFFE,
-        "reg_alpha": 2.2,
-        "reg_lambda": 2.4,
-        "min_split_gain": 0.5,
+        "reg_alpha": 1.2,
+        "reg_lambda": 1.4,
+        "n_estimators": 1500,
+        "min_split_gain": 0.8,
         "subsample": 0.85,
-        "num_iterations": 1500
     }
 
     num_round = 100
+    test_predictions = []
+    predictions_valid = []
+    trues_valid = []
 
-    folder = StratifiedKFold(n_splits=10, random_state=0xCAFFE)
-    test_predictions = np.zeros((common.K_FOLDS, len(test_paths)))
-    valid_predictions = np.zeros_like(y_train)
-
-    for i, (train_indices, valid_indices) in enumerate(folder.split(
-            x_train, cls_y_train
-    )):
+    for i in range(common.K_FOLDS):
         print("Fold: {} / {}".format(i + 1, common.K_FOLDS))
-        cur_x_train, cur_y_train = x_train[train_indices], y_train[train_indices]
-        cur_x_valid, cur_y_valid = x_train[valid_indices], y_train[valid_indices]
 
-        train_dataset = lgb.Dataset(cur_x_train, label=cur_y_train)
-        valid_dataset = lgb.Dataset(cur_x_valid, label=cur_y_valid)
+        train_paths, x_train = pkl.loads((data_folder
+                                          / "cv_embeddings"
+                                          / "train_{}.pkl".format(i)).read_bytes())
+
+        valid_paths, x_valid = pkl.loads((data_folder
+                                          / "cv_embeddings"
+                                          / "valid_{}.pkl".format(i)).read_bytes())
+
+        y_train, _ = get_y_and_classes_from_ids(data_folder, train_paths)
+        y_valid, _ = get_y_and_classes_from_ids(data_folder, valid_paths)
+
+        train_dataset = lgb.Dataset(x_train, label=y_train)
+        valid_dataset = lgb.Dataset(x_valid, label=y_valid)
 
         bst = lgb.train(
             params,
@@ -77,13 +72,18 @@ def train(data_folder: str, out_model: str):
             num_iteration=bst.best_iteration
         )
 
-        valid_predictions[valid_indices] = bst.predict(
-            cur_x_valid, num_iteration=bst.best_iteration
-        )
-        test_predictions[i] = bst.predict(x_test, num_iteration=bst.best_iteration)
+        predictions_valid.append(bst.predict(x_valid, num_iteration=bst.best_iteration))
+        trues_valid.append(y_valid)
+
+        test_predictions.append(bst.predict(x_test, num_iteration=bst.best_iteration))
+
+    test_predictions = np.asarray(test_predictions)
+
+    predictions_valid = np.concatenate(predictions_valid, axis=0)
+    trues_valid = np.concatenate(trues_valid, axis=0)
 
     print("Generating submission ...")
-    val_rmse = rmse_as_metric(valid_predictions, y_train)
+    val_rmse = rmse_as_metric(predictions_valid, trues_valid)
     test_ids = [int(Path(path).name) for path in test_paths]
 
     frame = pd.DataFrame(data={

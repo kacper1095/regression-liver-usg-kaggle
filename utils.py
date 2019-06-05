@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Tuple
 
 import numpy as np
 
@@ -9,6 +9,7 @@ import common
 __all__ = [
     "get_true_values_from_paths",
     "get_full_number_from_all_predictions",
+    "get_y_and_classes_from_ids",
     "restore_real_prediction_values"
 ]
 
@@ -40,3 +41,26 @@ def get_true_values_from_paths(paths: Iterable[Path]) -> np.ndarray:
         datum = json.loads((path / common.REGRESSION_DATA_FILE_NAME).read_text())
         values.append(datum["mean"])
     return np.asarray(values)
+
+
+def get_y_and_classes_from_ids(
+        original_samples_path: Path,
+        file_paths: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    gt = np.zeros_like(file_paths, dtype=np.float32)
+    classes = np.zeros_like(file_paths, dtype=np.int)
+
+    for i, a_path in enumerate(file_paths):
+        a_path = Path(a_path)
+        datum = json.loads(
+            (
+                    original_samples_path
+                    / a_path.parent.parent.name
+                    / a_path.parent.name
+                    / a_path.name
+                    / common.REGRESSION_DATA_FILE_NAME
+            ).read_text()
+        )["mean"]
+        gt[i] = datum
+        classes[i] = int(a_path.parent.name)
+    return gt, classes
