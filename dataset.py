@@ -90,7 +90,7 @@ class UsgDataset(Dataset):
             img = cv2.imread((a_path / name).as_posix(), cv2.IMREAD_GRAYSCALE)
             if name == "lower.png":
                 img = img[
-                      UP_CUT:img.shape[0] - BOTTOM_CUT,
+                      UP_CUT + 110:img.shape[0] - BOTTOM_CUT,
                       LEFT_CUT:img.shape[1] - RIGHT_CUT
                       ]
 
