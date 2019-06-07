@@ -84,7 +84,7 @@ def train(data_folder: str, out_model: str):
         PretrainedModel,
         criterion=MixedLoss,
         batch_size=batch_size,
-        max_epochs=common.N_DROPOUT_INFERENCES,
+        max_epochs=100,
         optimizer=optim.Adam,
         lr=0.0001,
         iterator_train__shuffle=True,
