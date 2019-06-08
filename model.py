@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -83,6 +84,15 @@ class PretrainedModel(nn.Module):
             nn.Dropout(0.5),
             nn.Linear(512, 2)
         )
+
+        print("Created model with {} params".format(self.num_parameters))
+
+    @property
+    def num_parameters(self):
+        return np.sum([
+            np.prod(param.shape)
+            for param in self.parameters(recurse=True)
+        ])
 
     def forward(self, x):
         if self.n_dropout_runs > 0:

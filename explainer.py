@@ -69,9 +69,8 @@ class FiveCropRestorer:
 
 
 class GuidedBackprop:
-    def __init__(self, net: NeuralNet, iterations: int):
+    def __init__(self, net: NeuralNet):
         self.net = net
-        self.iterations = iterations
 
         self._forward_relu_outputs = []
         self._handlers = []
@@ -166,29 +165,28 @@ class GuidedBackprop:
                             confidence: np.ndarray,
                             show_img: bool) -> np.ndarray:
         cm = plt.get_cmap("jet")
-        explanation = convert_to_grayscale(explanation[0])
-        explanation = cm(explanation[0])[..., :-1]
-
-        original_img = original_img[0].transpose((1, 2, 0))
-
-        new_img = 0.6 * original_img + .5 * explanation
-        new_img = (new_img - new_img.min()) / (new_img.max() - new_img.min() + 1e-8) * 255
-        new_img = new_img.astype(np.uint8)
-
-        original_img = (original_img - original_img.min()) / (
-                original_img.max() - original_img.min() + 1e-8) * 255
-        original_img = imutils.resize(original_img.astype(np.uint8), height=680,
-                                      inter=cv2.INTER_AREA)
-
-        new_img = imutils.resize(new_img, height=680, inter=cv2.INTER_AREA)
-
         fig, ax = plt.subplots(2, 1, sharex=True)
         fig.tight_layout()
+        fig.suptitle("Class: {} | Confidence: {:.4f}".format(predicted_class,
+                                                             confidence))
+        explanation_layer = convert_to_grayscale(explanation[0, 0:1])
+        explanation_layer = cm(explanation_layer[0])[..., :-1]
 
-        ax[0].set_title("Class: {} | Confidence: {:.4f}".format(predicted_class,
-                                                                confidence))
+        layer = original_img[0, 0]
+        layer = np.stack([layer, layer, layer], axis=-1)
+
+        new_img = .5 * layer + .5 * explanation_layer
+        new_img = (new_img - new_img.min()) / (
+                new_img.max() - new_img.min() + 1e-8) * 255
+        new_img = new_img.astype(np.uint8)
+        new_img = imutils.resize(new_img, height=680, inter=cv2.INTER_AREA)
+
+        layer = (layer - layer.min()) / (layer.max() - layer.min() + 1e-8) * 255
+        layer = imutils.resize(layer.astype(np.uint8), height=680,
+                               inter=cv2.INTER_AREA)
+
         ax[0].imshow(new_img)
-        ax[1].imshow(original_img)
+        ax[1].imshow(layer)
         ax[0].axis('off')
         ax[1].axis('off')
 
@@ -243,7 +241,7 @@ def testing(data_folder: str, model_path: str):
                                has_crops=True)
 
     restorer = FiveCropRestorer()
-    explainer = GuidedBackprop(net, 5)
+    explainer = GuidedBackprop(net)
 
     saves_path = Path("explanations")
 
@@ -255,7 +253,7 @@ def testing(data_folder: str, model_path: str):
             valid_dataset,
             target_extractor=lambda x: x[0].mean(dim=1),
             explanation_postprocess=restorer.restore_imgs,
-            show_img=False
+            show_img=True
     )):
         name = valid_paths[i].parent.name
 
