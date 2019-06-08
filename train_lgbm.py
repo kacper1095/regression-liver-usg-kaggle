@@ -3,14 +3,15 @@ import multiprocessing as mp
 import pickle as pkl
 from pathlib import Path
 
+import imageio
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import StratifiedKFold
 
 import common
 from metrics import *
-from utils import get_y_and_classes_from_ids
-from sklearn.model_selection import StratifiedKFold
+from utils import get_y_and_classes_from_ids, plot_importances
 
 
 def train(data_folder: str, out_model: str):
@@ -54,6 +55,8 @@ def train(data_folder: str, out_model: str):
     test_predictions = np.zeros((common.K_FOLDS, len(test_paths)))
     valid_predictions = np.zeros_like(y_train)
 
+    important_features = None
+
     for i, (train_indices, valid_indices) in enumerate(folder.split(
             x_train, cls_y_train
     )):
@@ -81,6 +84,25 @@ def train(data_folder: str, out_model: str):
             cur_x_valid, num_iteration=bst.best_iteration
         )
         test_predictions[i] = bst.predict(x_test, num_iteration=bst.best_iteration)
+        img, importances_dataframe = plot_importances(bst, False)
+
+        important_features = importances_dataframe \
+            if important_features is None \
+            else pd.concat([important_features, importances_dataframe], axis=0)
+
+        imageio.imwrite(
+            out_model / f"importances_{i}.png",
+            img
+        )
+    top_100_features = important_features.groupby(["Feature"]) \
+                           .agg("sum") \
+                           .reset_index() \
+                           .sort_values(by="Value", ascending=False) \
+                           .iloc[:, :100]["Feature"]
+
+    (out_model / "important_features.txt").write_text(
+        "\n".join(list(top_100_features))
+    )
 
     print("Generating submission ...")
     val_rmse = rmse_as_metric(valid_predictions, y_train)

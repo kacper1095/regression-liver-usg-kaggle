@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 from typing import Iterable, Tuple
 
+import lightgbm as lgbm
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
 
 import common
 
@@ -10,7 +14,8 @@ __all__ = [
     "get_true_values_from_paths",
     "get_full_number_from_all_predictions",
     "get_y_and_classes_from_ids",
-    "restore_real_prediction_values"
+    "restore_real_prediction_values",
+    "plot_importances"
 ]
 
 
@@ -64,3 +69,32 @@ def get_y_and_classes_from_ids(
         gt[i] = datum
         classes[i] = int(a_path.parent.name)
     return gt, classes
+
+
+def plot_importances(
+        clf: lgbm.Booster,
+        show: bool = True,
+        limit: int = 100
+) -> Tuple[np.ndarray, pd.DataFrame]:
+    columns = [
+        nam + "_" + op
+        for nam in ["cls", "split", "reg"]
+        for op in ["mean", "var", "std"]
+    ]
+    columns += [f"feat_{i}" for i in list(range(1039 - len(columns)))]
+    feature_imp = pd.DataFrame(sorted(zip(clf.feature_importance(), columns)),
+                               columns=['Value', 'Feature'])
+
+    feature_imp = feature_imp.sort_values(by="Value", ascending=False)
+
+    fig = plt.figure(figsize=(20, 20))
+    sns.barplot(x="Value", y="Feature", data=feature_imp.iloc[:limit])
+    plt.title('LightGBM Features (avg over folds)')
+    plt.tight_layout()
+    fig.canvas.draw()
+    width, height = fig.get_size_inches() * fig.get_dpi()
+    image = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8) \
+        .reshape((int(height), int(width), 3))
+    if show:
+        plt.show()
+    return image, feature_imp
