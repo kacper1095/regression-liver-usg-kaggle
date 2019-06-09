@@ -96,7 +96,8 @@ def train(data_folder: str, out_model: str):
     print("Generating submission ... {:.4f}".format(val_rmse))
 
     frame.to_csv(
-        f"submissions/{common.get_timestamp()}_{'%.4f' % val_rmse}_submission.csv",
+        (out_model
+         / f"{common.get_timestamp()}_{'%.4f' % val_rmse}_submission.csv"),
         index=False
     )
 

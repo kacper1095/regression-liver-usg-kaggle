@@ -71,7 +71,8 @@ def generate_submission(data_folder: str, weights_path: str):
         valid_predictions[common.REGRESSION_INDEX].detach().cpu().numpy()
     ).mean(axis=1)
 
-    valid_classification_trues = np.asarray([int(path.parent.name) for path in valid_paths])
+    valid_classification_trues = np.asarray(
+        [int(path.parent.name) for path in valid_paths])
     valid_regression_trues = get_true_values_from_paths(valid_paths)
 
     val_acc = fscore_as_metric(valid_classification_predictions,
@@ -97,9 +98,10 @@ def generate_submission(data_folder: str, weights_path: str):
     frame = pd.DataFrame(data={"id": ids, "label": classes})
     frame["id"] = frame["id"].astype(np.int32)
     frame = frame.sort_values(by=["id"])
+
     frame.to_csv(
-        f"submissions/{timestamp}_{'%.4f' % val_acc}"
-        f"_classification_submission.csv",
+        (weights_path.parent
+         / f"{timestamp}_{'%.4f' % val_acc}_classification_submission.csv").as_posix(),
         index=False)
 
     print("Generating regression submission ... {:.4f}".format(val_rmse))
@@ -108,8 +110,8 @@ def generate_submission(data_folder: str, weights_path: str):
     frame["Id"] = frame["Id"].astype(np.int)
     frame = frame.sort_values(by=["Id"])
     frame.to_csv(
-        f"submissions/{timestamp}_{'%.4f' % val_rmse}"
-        f"_regression_submission.csv",
+        (weights_path.parent.as_posix()
+         / f"{timestamp}_{'%.4f' % val_rmse}_regression_submission.csv").as_posix(),
         index=False
     )
 
