@@ -115,7 +115,7 @@ def train(data_folder: str, out_model: str):
                          lower_is_better=False,
                          on_train=True,
                          target_extractor=lambda x: x[common.CLASSIFICATION_INDEX]),
-            BatchScoring(fscore_for_classification,
+            BatchScoring(fscore_for_split,
                          name="train_fscore_split",
                          lower_is_better=False,
                          on_train=True,
